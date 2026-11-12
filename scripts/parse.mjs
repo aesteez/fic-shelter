@@ -63,7 +63,7 @@ export function parseAO3Doc(doc, fb = {}) {
     const links = [...dd.querySelectorAll('a')].map(txt).filter(Boolean);
     const vals = links.length ? links : txt(dd).split(',').map(x => x.trim()).filter(Boolean);
     if (k.startsWith('rating')) r.rating = ratingCode(vals[0]);
-    else if (k.startsWith('archive warning')) vals.forEach(v => { const c = warnCode(v); if (c === 'underage') r.problems.push('underage'); else if (c && !r.warnings.includes(c)) r.warnings.push(c); });
+    else if (k.startsWith('archive warning')) vals.forEach(v => { const c = warnCode(v); if (c && !r.warnings.includes(c)) r.warnings.push(c); });
     else if (k.startsWith('categor')) vals.forEach(v => { const c = catCode(v); if (c && !r.category.includes(c)) r.category.push(c); });
     else if (k.startsWith('fandom')) r.fandoms = vals;
     else if (k.startsWith('relationship')) r.relationships = vals;
