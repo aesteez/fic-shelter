@@ -44,7 +44,6 @@ for (const file of await walk(FICS)) {
   try {
     const st = await fs.stat(file);
     const r = await parseFile(file, await fs.readFile(file));
-    if (r.problems.includes('underage')) { report.skipped.push([rel, 'has the Underage warning (not allowed)']); continue; }
     if (!r.chapters.length) { report.skipped.push([rel, 'no story text found']); continue; }
     const ao3 = (r.sourceUrl.match(/works\/(\d+)/) || [])[1];
     if (ao3 && takedown.has(ao3)) { report.skipped.push([rel, 'listed in takedown.txt']); continue; }
