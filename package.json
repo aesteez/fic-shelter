@@ -1,0 +1,12 @@
+{
+  "name": "fic-shelter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "jsdom": "24.1.3",
+    "jszip": "3.10.1"
+  }
+}
