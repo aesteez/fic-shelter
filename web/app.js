@@ -1,7 +1,7 @@
 (() => {
 const RATINGS = {G:{s:'G',l:'General Audiences'}, T:{s:'T',l:'Teen And Up Audiences'}, M:{s:'M',l:'Mature'}, E:{s:'E',l:'Explicit'}, N:{s:'–',l:'Not Rated'}};
-const WARN = {choose:'Creator Chose Not To Use Archive Warnings', none:'No Archive Warnings Apply', violence:'Graphic Depictions Of Violence', death:'Major Character Death', noncon:'Rape/Non-Con'};
-const SERIOUS = ['violence','death','noncon'];
+const WARN = {choose:'Creator Chose Not To Use Archive Warnings', none:'No Archive Warnings Apply', violence:'Graphic Depictions Of Violence', death:'Major Character Death', noncon:'Rape/Non-Con', underage:'Underage'};
+const SERIOUS = ['violence','death','noncon','underage'];
 const CATS = {ff:'F/F', fm:'F/M', gen:'Gen', mm:'M/M', multi:'Multi', other:'Other'};
 const CSYM = {ff:'FF', fm:'FM', gen:'G', mm:'MM', multi:'+', other:'O'};
 const PAGE = 20;
