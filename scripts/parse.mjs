@@ -2,7 +2,6 @@
 import { JSDOM } from 'jsdom';
 import JSZip from 'jszip';
 
-const FOLLOWING = 4; // Node.DOCUMENT_POSITION_FOLLOWING
 const norm = s => String(s ?? '').trim().toLowerCase();
 const txt = el => ((el && el.textContent) || '').replace(/\s+/g, ' ').trim();
 const ratingCode = v => { v = norm(v); if (v.startsWith('general')) return 'G'; if (v.startsWith('teen')) return 'T'; if (v.startsWith('mature')) return 'M'; if (v.startsWith('explicit')) return 'E'; return 'N'; };
@@ -38,32 +37,40 @@ export function toText(root) {
   return out.join('\n\n');
 }
 
-function labeled(block) {
-  const o = {}; if (!block) return o;
-  for (const p of block.querySelectorAll('p, h3, h4, h5, b, strong')) {
-    let bq = p.nextElementSibling;
-    while (bq && !/^blockquote$/i.test(bq.tagName) && !bq.classList.contains('userstuff')) {
-      if (/^(p|h3|h4|h5)$/i.test(bq.tagName)) { bq = null; break; }
-      bq = bq.nextElementSibling;
+const LABEL = /^(chapter\s+)?(end\s+)?(summary|notes?)\s*:?$/i;
+// Pulls "Summary / Notes / End Notes" sections out of a block (removing them) and returns their text.
+function takeNotes(box) {
+  const o = { summary: '', notes: '', endNotes: '' };
+  if (!box) return o;
+  for (const lab of [...box.querySelectorAll('p, h3, h4, h5, h6, b, strong, div, span')]) {
+    if (!box.contains(lab) || !LABEL.test(txt(lab))) continue;
+    let labEl = lab;
+    while (!labEl.nextElementSibling && labEl.parentElement && labEl.parentElement !== box && txt(labEl.parentElement) === txt(lab)) labEl = labEl.parentElement;
+    const target = labEl.nextElementSibling;
+    const kind = txt(lab).toLowerCase();
+    if (target && !/^h[1-6]$/i.test(target.tagName)) {
+      const t = toText(target);
+      if (/end/.test(kind)) o.endNotes = o.endNotes || t;
+      else if (/summary/.test(kind)) o.summary = o.summary || t;
+      else o.notes = o.notes || t;
+      target.remove();
     }
-    if (!bq) continue;
-    const k = txt(p).toLowerCase();
-    if (/summary/.test(k) && !o.summary) o.summary = toText(bq);
-    else if (/note/.test(k) && !o.notes) o.notes = toText(bq);
+    labEl.remove();
   }
+  for (const el of [...box.querySelectorAll('p, div')]) if (box.contains(el) && /^\(?see the end of the (chapter|work) for/i.test(txt(el))) el.remove();
   return o;
 }
-const follows = (a, b) => !!(a.compareDocumentPosition(b) & FOLLOWING);
+const labeled = block => block ? takeNotes(block.cloneNode(true)) : {};
 
 export function parseAO3Doc(doc, fb = {}) {
   const r = { title: '', creator: '', rating: '', warnings: [], category: [], fandoms: [], relationships: [], characters: [], tags: [], lang: '', series: null, summary: '', notes: '', endNotes: '', sourceUrl: '', published: '', expected: null, chapters: [], problems: [] };
-  const dl = doc.querySelector('dl.tags');
+  const dl = doc.querySelector('dl.tags') || [...doc.querySelectorAll('dl')].find(d => /^(rating|archive warning|fandom)/i.test(txt(d.querySelector('dt'))));
   if (dl) for (const dt of dl.querySelectorAll('dt')) {
     const k = txt(dt).replace(/:$/, '').toLowerCase(), dd = dt.nextElementSibling; if (!dd) continue;
     const links = [...dd.querySelectorAll('a')].map(txt).filter(Boolean);
     const vals = links.length ? links : txt(dd).split(',').map(x => x.trim()).filter(Boolean);
     if (k.startsWith('rating')) r.rating = ratingCode(vals[0]);
-    else if (k.startsWith('archive warning')) vals.forEach(v => { const c = warnCode(v); if (c && !r.warnings.includes(c)) r.warnings.push(c); });
+    else if (k.startsWith('archive warning')) vals.forEach(v => { const c = warnCode(v); if (c === 'underage') r.problems.push('underage'); else if (c && !r.warnings.includes(c)) r.warnings.push(c); });
     else if (k.startsWith('categor')) vals.forEach(v => { const c = catCode(v); if (c && !r.category.includes(c)) r.category.push(c); });
     else if (k.startsWith('fandom')) r.fandoms = vals;
     else if (k.startsWith('relationship')) r.relationships = vals;
@@ -86,27 +93,34 @@ export function parseAO3Doc(doc, fb = {}) {
   r.creator = authors.join(', ') || txt(doc.querySelector('.byline')).replace(/^by\s+/i, '') || fb.creator || '';
   if (!r.lang) r.lang = fb.lang ? (LANGS[fb.lang.slice(0, 2).toLowerCase()] || fb.lang) : '';
   const pre = labeled(preface); r.summary = pre.summary || ''; r.notes = pre.notes || '';
-  const after = doc.querySelector('#afterword'); if (after) r.endNotes = labeled(after).notes || '';
 
-  const isOut = el => el.closest('#preface, #afterword, .meta, dl.tags, .preface, .afterword, .end.notes, .endnotes, [id$="endnotes"]');
-  let cands = [...doc.querySelectorAll('.userstuff')].filter(el => el.id !== 'chapters' && !isOut(el));
-  cands = cands.filter(el => !cands.some(o => o !== el && o.contains(el)));
-  if (!cands.length) cands = [...doc.querySelectorAll('[id="chapters"]')];
-  if (!cands.length && doc.body) { const b = doc.body.cloneNode(true); b.querySelectorAll('#preface, #afterword, dl.tags, .meta, h1').forEach(x => x.remove()); cands = [b]; }
-  const heads = [...doc.querySelectorAll('h2, h3')].filter(h => !h.closest('#preface, #afterword, .userstuff:not(#chapters)') && txt(h));
-  const metas = [...doc.querySelectorAll('.meta, .chapter.preface')].filter(m => !m.closest('#preface') && m !== preface && !(dl && m.contains(dl)));
-  const ends = [...doc.querySelectorAll('.end.notes, [id$="endnotes"]')].filter(e => !e.closest('#afterword'));
-  r.chapters = cands.map((el, i) => {
-    const prev = cands[i - 1], next = cands[i + 1];
-    const between = x => (!prev || follows(prev, x)) && follows(x, el) && !x.contains(el);
-    const h = [...heads].reverse().find(between);
+  const after = doc.querySelector('#afterword');
+  if (after) { const a = labeled(after); r.endNotes = a.endNotes || a.notes || ''; }
+
+  // Chapters: everything between one "Chapter N" heading and the next is the chapter;
+  // labelled Summary / Notes / End Notes sections inside it are moved to the chapter notes.
+  const out = el => el.closest('#preface, #afterword') || (preface && preface.contains(el));
+  const heads = [...doc.querySelectorAll('h1, h2, h3, h4')].filter(h => !out(h) && /^chapter\s+\d+/i.test(txt(h)));
+  let start = preface || dl;
+  if (start && !preface) while (start.parentElement && start.parentElement !== doc.body && !heads.some(h => start.parentElement.contains(h))) start = start.parentElement;
+  const region = (from, to) => {
+    const rg = doc.createRange();
+    if (from) rg.setStartAfter(from); else rg.setStart(doc.body, 0);
+    if (to) rg.setEndBefore(to); else rg.setEnd(doc.body, doc.body.childNodes.length);
+    const box = doc.createElement('div'); box.appendChild(rg.cloneContents());
+    box.querySelectorAll('#afterword, script, style').forEach(x => x.remove());
+    return box;
+  };
+  const pieces = heads.length
+    ? heads.map((h, i) => ({ h, box: region(h, heads[i + 1] || after) }))
+    : [{ h: null, box: region(start, after) }];
+  r.chapters = pieces.map(({ h, box }) => {
     let title = h ? txt(h).replace(/^chapter\s+\d+\s*[:.\-–]?\s*/i, '').trim() : '';
     if (norm(title) === norm(r.title)) title = '';
-    const lm = labeled([...metas].reverse().find(between));
-    const notes = [lm.summary ? 'Chapter summary: ' + lm.summary : '', lm.notes || ''].filter(Boolean).join('\n\n');
-    const e = ends.find(x => follows(el, x) && (!next || follows(x, next)));
-    const endNotes = e ? (labeled(e).notes || toText(e.querySelector('blockquote') || e)) : '';
-    return { title, body: toText(el), notes, endNotes };
+    if (!h) box.querySelectorAll('h1').forEach(x => x.remove());
+    const n = takeNotes(box);
+    const notes = [n.summary ? 'Chapter summary: ' + n.summary : '', n.notes || ''].filter(Boolean).join('\n\n');
+    return { title, body: toText(box), notes, endNotes: n.endNotes };
   }).filter(c => c.body.trim());
   return r;
 }
