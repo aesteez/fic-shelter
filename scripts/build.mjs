@@ -74,4 +74,6 @@ console.log(`Built ${report.ok} work(s).`);
 for (const [f, why] of report.skipped) console.log(`Skipped ${f}: ${why}`);
 if (process.env.GITHUB_STEP_SUMMARY) {
   const lines = [`### Fic Shelter build`, `Published **${report.ok}** work(s).`];
-  if (report.skipped.length)
+  if (report.skipped.length) lines.push('', '| Skipped file | Reason |', '|---|---|', ...report.skipped.map(([f, w]) => `| ${f} | ${w} |`));
+  await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
+}
