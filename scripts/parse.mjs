@@ -149,8 +149,186 @@ export async function parseEpub(buffer) {
   return parseAO3Doc(doc, { title: dc('title'), creator: creators.join(', '), lang: dc('language') });
 }
 
+// Reads a fic written with the site's "Write" page: a header between --- lines, then "# Chapter" sections.
+export function parseWritten(text) {
+  text = text.replace(/\r/g, '').replace(/^\uFEFF/, '');
+  const m = text.match(/^---\n([\s\S]*?)\n---[ \t]*\n?([\s\S]*)$/);
+  if (!m) throw new Error('missing the header block between --- lines');
+  const meta = {}, lines = m[1].split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const mm = lines[i].match(/^([a-z_]+):[ \t]?(.*)$/i); if (!mm) continue;
+    let v = mm[2];
+    if (v.trim() === '|') { const buf = []; while (i + 1 < lines.length && (/^  /.test(lines[i + 1]) || !lines[i + 1].trim())) buf.push(lines[++i].replace(/^  /, '')); v = buf.join('\n'); }
+    meta[mm[1].toLowerCase()] = v.trim();
+  }
+  const split = v => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
+  const r = { title: meta.title || '', creator: meta.author || '', rating: ratingCode(meta.rating), warnings: [], category: [], fandoms: split(meta.fandoms),
+    relationships: split(meta.relationships), characters: split(meta.characters), tags: split(meta.tags), lang: meta.language || '', series: null,
+    summary: meta.summary || '', notes: meta.notes || '', endNotes: meta.end_notes || '', sourceUrl: '', published: '', expected: null, chapters: [], problems: [], original: true };
+  split(meta.warnings).forEach(v => { const c = warnCode(v); if (c && !r.warnings.includes(c)) r.warnings.push(c); });
+  split(meta.categories).forEach(v => { const c = catCode(v); if (c && !r.category.includes(c)) r.category.push(c); });
+  const sm = String(meta.series || '').match(/^(.*?)\s*\|\s*(\d+)\s*$/); if (meta.series) r.series = { name: (sm ? sm[1] : meta.series).trim(), part: sm ? +sm[2] : 1 };
+  if (/^\d+$/.test(meta.chapters_total || '')) r.expected = +meta.chapters_total;
+  const parts = m[2].split(/^# (.*)$/m);
+  const sections = parts.length > 1 ? parts.slice(1).reduce((a, x, i) => (i % 2 ? a[a.length - 1].body = x : a.push({ head: x, body: '' }), a), []) : [{ head: '', body: parts[0] }];
+  r.chapters = sections.map(({ head, body }) => {
+    const paras = body.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
+    let notes = '', endNotes = '';
+    if (paras.length && /^notes:\s*/i.test(paras[0])) notes = paras.shift().replace(/^notes:\s*/i, '');
+    if (paras.length && /^end notes:\s*/i.test(paras[paras.length - 1])) endNotes = paras.pop().replace(/^end notes:\s*/i, '');
+    return { title: head.replace(/^chapter\s+\d+\s*[:.\-–]?\s*/i, '').trim(), body: paras.join('\n\n').replace(/^\\# /gm, '# '), notes, endNotes };
+  }).filter(c => c.body.trim());
+  return r;
+}
+
+// ---------- PDF (AO3 pages saved or printed as PDF, and AO3's own PDF downloads) ----------
+const PDF_LABEL = /^(rating|archive warnings?|categor(?:y|ies)|fandoms?|relationships?|characters?|additional tags|language|series|collections?|stats)\s*:\s*(.*)$/i;
+const SECTION = /^(chapter\s+)?(end\s+)?(summary|notes?)\s*:?$/i;
+const JUNK = [/^\(?see the end of the (work|chapter) for/i, /^close\s*(\(\s*#?\s*\))?$/i, /^(chapter text|work text:?)$/i, /^\d+$/, /^\(\s*#\s*\)$/];
+const STOP = /^(kudos \(\d+\)|leave kudos|comments \(\d+\)|post comment|hide comments)$/i;
+const median = a => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0; };
+const mode = a => { const c = new Map(); a.forEach(v => c.set(v, (c.get(v) || 0) + 1)); return [...c].sort((x, y) => y[1] - x[1])[0]?.[0] || 0; };
+
+async function pdfLines(buffer) {
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const doc = await getDocument({ data: new Uint8Array(buffer), isEvalSupported: false, verbosity: 0 }).promise;
+  const lines = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const tc = await (await doc.getPage(p)).getTextContent();
+    const rows = new Map();
+    for (const it of tc.items) {
+      if (!it.str) continue;
+      const y = Math.round(it.transform[5]);
+      const key = [...rows.keys()].find(k => Math.abs(k - y) <= 2) ?? y;
+      if (!rows.has(key)) rows.set(key, []);
+      rows.get(key).push(it);
+    }
+    for (const y of [...rows.keys()].sort((a, b) => b - a)) {
+      const items = rows.get(y).sort((a, b) => a.transform[4] - b.transform[4]);
+      let text = '', end = null, space = false, x0 = null, x1 = 0, size = 0;
+      for (const it of items) {
+        const x = it.transform[4];
+        if (!it.str.trim()) { space = true; continue; }
+        if (text && (space || (end !== null && x - end > Math.max(1.5, it.height * 0.18)))) text += ' ';
+        text += it.str; space = /\s$/.test(it.str); end = x + it.width;
+        if (x0 === null) x0 = x; x1 = Math.max(x1, end); size = Math.max(size, Math.round(it.height));
+      }
+      text = text.replace(/\s*\((?:#[^)]*|https?:\/\/[^)\s]*)\)/g, '').replace(/\s+/g, ' ').trim();
+      if (text) lines.push({ page: p, y, x0, x1, size, text });
+    }
+  }
+  return lines;
+}
+
+export async function parsePdf(buffer) {
+  const all = await pdfLines(buffer);
+  const r = { title: '', creator: '', rating: '', warnings: [], category: [], fandoms: [], relationships: [], characters: [], tags: [], lang: '', series: null,
+    summary: '', notes: '', endNotes: '', sourceUrl: '', published: '', expected: null, chapters: [], problems: [], fromPdf: true };
+  const joined = all.map(l => l.text).join(' ');
+  const src = joined.match(/archiveofourown\.org\/works\/(\d+)/i); if (src) r.sourceUrl = 'https://archiveofourown.org/works/' + src[1];
+  let lines = [];
+  for (const l of all) { if (STOP.test(l.text)) break; if (!JUNK.some(j => j.test(l.text))) lines.push(l); }
+  if (!lines.length) return r;
+  const bodySize = mode(lines.map(l => l.size));
+  const isHead = l => l.size >= bodySize + 2;
+  const gaps = []; for (let i = 1; i < lines.length; i++) if (lines[i].page === lines[i - 1].page && !isHead(lines[i]) && !isHead(lines[i - 1])) gaps.push(lines[i - 1].y - lines[i].y);
+  const lineGap = median(gaps.filter(g => g > 0)) || bodySize * 1.2;
+  const bodyLines = lines.filter(l => !isHead(l));
+  const base = mode(bodyLines.map(l => Math.round(l.x0)));
+  const right = median(bodyLines.map(l => l.x1).sort((a, b) => b - a).slice(0, Math.max(5, Math.floor(bodyLines.length * 0.3))));
+
+  // Title = first line in the largest heading size; everything before it is the tag block.
+  const maxHead = Math.max(...lines.filter(isHead).map(l => l.size), 0);
+  let ti = maxHead ? lines.findIndex(l => l.size === maxHead) : -1;
+  const pre = ti > 0 ? lines.slice(0, ti) : [];
+  if (pre.some(l => PDF_LABEL.test(l.text))) {
+    let key = null; const vals = {};
+    for (const l of pre) { const m = l.text.match(PDF_LABEL); if (m) { key = m[1].toLowerCase(); vals[key] = m[2]; } else if (key) vals[key] += ' ' + l.text; }
+    const list = v => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
+    for (const [k, v] of Object.entries(vals)) applyTag(r, k, list(v), v);
+  } else if (pre.length) {
+    const groups = [[]];
+    pre.forEach((l, i) => { if (i && (l.page !== pre[i - 1].page || pre[i - 1].y - l.y > lineGap * 1.5 || Math.abs(l.x0 - pre[i - 1].x0) > 8)) groups.push([]); groups[groups.length - 1].push(l.text); });
+    const rest = [];
+    for (const g of groups) {
+      if (g.every(t => /^(general audiences|teen and up audiences|mature|explicit|not rated)$/i.test(t))) r.rating = ratingCode(g[0]);
+      else if (g.every(t => warnCode(t))) applyTag(r, 'archive warning', g);
+      else if (g.every(t => catCode(t))) applyTag(r, 'category', g);
+      else if (g.some(t => /published:/i.test(t))) applyTag(r, 'stats', [], g.join(' '));
+      else if (g.length === 1 && /^part\s+\d+\s+of\s+/i.test(g[0])) applyTag(r, 'series', [], g[0]);
+      else rest.push(g);
+    }
+    if (rest.length > 1 && rest[rest.length - 1].length === 1 && /^[\p{L}][\p{L} ()-]{1,30}$/u.test(rest[rest.length - 1][0]) && !rest[rest.length - 1][0].includes('/')) r.lang = rest.pop()[0];
+    const order = ['fandoms', 'relationships', 'characters', 'tags'];
+    let k = 0;
+    for (const g of rest) {
+      while (order[k] === 'relationships' && !g.some(t => /[\/&]/.test(t))) k++;
+      if (k >= order.length) { r.tags.push(...g); continue; }
+      r[order[k]] = g; k++;
+    }
+  }
+  if (ti < 0) ti = 0;
+  // Title may wrap over several lines of the same size.
+  let j = ti; const tl = [];
+  while (j < lines.length && lines[j].size === maxHead && (!tl.length || lines[j - 1].y - lines[j].y <= maxHead * 1.8)) tl.push(lines[j++].text);
+  r.title = maxHead ? tl.join(' ') : '';
+  if (j < lines.length && isHead(lines[j]) && lines[j].size < maxHead && !SECTION.test(lines[j].text) && !/^chapter\s+\d+/i.test(lines[j].text)) r.creator = lines[j++].text.replace(/^by\s+/i, '');
+
+  // Paragraphs: break on headings, big gaps, short lines and indented first lines.
+  const paras = [];
+  for (const l of lines.slice(j)) {
+    const prev = paras[paras.length - 1], pl = prev && prev.last;
+    const brk = !prev || isHead(l) || isHead(pl) || l.page === pl.page && pl.y - l.y > lineGap * 1.5 || pl.x1 < right - 45 || l.x0 > pl.x0 + 12 && l.x0 > base + 12;
+    if (brk) paras.push({ text: l.text, x0: l.x0, head: isHead(l), last: l });
+    else { prev.text += ' ' + l.text; prev.x0 = Math.min(prev.x0, l.x0); prev.last = l; }
+  }
+  let ch = null, section = null, bodyStarted = false;
+  const newCh = title => { ch = { title, body: [], notes: [], endNotes: [] }; r.chapters.push(ch); bodyStarted = false; section = null; };
+  for (const p of paras) {
+    const t = p.text.trim();
+    if (/^chapter\s+\d+\b/i.test(t) && (p.head || t.length < 90)) { newCh(t.replace(/^chapter\s+\d+\s*[:.\-–]?\s*/i, '').trim()); continue; }
+    const sm = t.match(SECTION);
+    if (sm && (p.head || t.length < 25)) {
+      const kind = /summary/i.test(t) ? 'summary' : 'notes';
+      if (!ch && !bodyStarted) section = kind === 'summary' ? { to: 'summary' } : { to: 'notes' };
+      else if (!bodyStarted) section = { to: kind === 'summary' ? 'chSummary' : 'chNotes' };
+      else section = { to: /chapter/i.test(t) || !/^notes/i.test(t) ? 'chEnd' : 'endNotes' };
+      continue;
+    }
+    if (section && p.x0 > base + 2) {
+      if (section.to === 'summary') r.summary += (r.summary ? '\n\n' : '') + t;
+      else if (section.to === 'notes') r.notes += (r.notes ? '\n\n' : '') + t;
+      else if (section.to === 'endNotes') r.endNotes += (r.endNotes ? '\n\n' : '') + t;
+      else if (ch) (section.to === 'chEnd' ? ch.endNotes : ch.notes).push(section.to === 'chSummary' && !ch.notes.length ? 'Chapter summary: ' + t : t);
+      continue;
+    }
+    section = null;
+    if (!ch) newCh('');
+    ch.body.push(t); bodyStarted = true;
+  }
+  if (r.chapters.length === 1 && r.chapters[0].endNotes.length && !r.endNotes) { r.endNotes = r.chapters[0].endNotes.join('\n\n'); r.chapters[0].endNotes = []; }
+  r.chapters = r.chapters.map(c => ({ title: c.title, body: c.body.join('\n\n'), notes: c.notes.join('\n\n'), endNotes: c.endNotes.join('\n\n') })).filter(c => c.body.trim());
+  if (!r.lang) r.lang = 'English';
+  return r;
+}
+
+function applyTag(r, k, vals, raw = '') {
+  if (k.startsWith('rating')) r.rating = ratingCode(vals[0] || raw);
+  else if (k.startsWith('archive warning')) vals.forEach(v => { const c = warnCode(v); if (c && !r.warnings.includes(c)) r.warnings.push(c); });
+  else if (k.startsWith('categor')) vals.forEach(v => { const c = catCode(v); if (c && !r.category.includes(c)) r.category.push(c); });
+  else if (k.startsWith('fandom')) r.fandoms = vals;
+  else if (k.startsWith('relationship')) r.relationships = vals;
+  else if (k.startsWith('character')) r.characters = vals;
+  else if (k.startsWith('additional tag')) r.tags = vals;
+  else if (k.startsWith('language')) r.lang = (raw || vals[0] || '').trim();
+  else if (k.startsWith('series')) { const m = String(raw).match(/Part\s+(\d+)\s+of\s+(.+)/i); if (m) r.series = { part: +m[1], name: m[2].trim() }; }
+  else if (k.startsWith('stats')) { const pb = String(raw).match(/Published:\s*([\d-]+)/i); if (pb) r.published = pb[1]; const c = String(raw).match(/Chapters:\s*(\d+)\s*\/\s*(\d+|\?)/i); if (c && c[2] !== '?') r.expected = +c[2]; }
+}
+
 export async function parseFile(name, buffer) {
   const n = name.toLowerCase();
+  if (n.endsWith('.pdf')) return parsePdf(buffer);
+  if (n.endsWith('.md')) return parseWritten(buffer.toString('utf8'));
   if (n.endsWith('.epub')) return parseEpub(buffer);
   if (/\.(x?html?)$/.test(n)) return parseAO3Doc(htmlDoc(buffer.toString('utf8')));
   throw new Error('unsupported file type (use HTML or EPUB)');
