@@ -72,7 +72,7 @@ function tagLinks(w){
 }
 const fandomLinks = w => (w.fandoms||[]).map(f=>`<button class="tagl" data-tag="${esc(f)}">${esc(f)}</button>`).join(', ');
 const byLink = w => `<button class="lk" data-creator="${esc(w.creator)}" translate="no">${esc(w.creator)}</button>`;
-const uplLine = w => `<p class="upl">Backup copy${w.uploader?` · shared by <span translate="no">${esc(w.uploader)}</span>`:''}${w.sourceUrl?` · <a href="${esc(w.sourceUrl)}" target="_blank" rel="noopener">Read on AO3</a>`:''}</p>`;
+const uplLine = w => w.original ? `<p class="upl">Written for Fic Shelter${w.uploader?` · posted by <span translate="no">${esc(w.uploader)}</span>`:''}</p>` : `<p class="upl">Backup copy${w.fromPdf?' (from a PDF, formatting simplified)':''}${w.uploader?` · shared by <span translate="no">${esc(w.uploader)}</span>`:''}${w.sourceUrl?` · <a href="${esc(w.sourceUrl)}" target="_blank" rel="noopener">Read on AO3</a>`:''}</p>`;
 function statsDL(w){
   const s=[['Language',esc(w.lang||'English')],['Words',nf.format(w.words||0)],['Chapters',chapLabel(w)]];
   if (w.published) s.push(['Originally posted',esc(w.published)]);
@@ -94,20 +94,20 @@ function blurb(w, extra=''){
 }
 
 /* ---------- routing ---------- */
-const HASH = {works:'works', fandoms:'fandoms', shelf:'shelf', help:'upload'};
+const HASH = {works:'works', fandoms:'fandoms', shelf:'shelf', help:'upload', write:'write'};
 function setHash(h){ if (location.hash.slice(1)===h) return; S.ignoreHash=h; location.hash=h; }
 window.addEventListener('hashchange',()=>{ const h=location.hash.slice(1); if (h===S.ignoreHash){ S.ignoreHash=null; return; } route(h); });
 function route(h){
   if (h.startsWith('work-')) go('work',{id:h.slice(5),ch:0,whole:false},h);
-  else if (h==='fandoms') go('fandoms'); else if (h==='shelf') go('shelf'); else if (h==='upload') go('help'); else go('works');
+  else if (h==='fandoms') go('fandoms'); else if (h==='shelf') go('shelf'); else if (h==='upload') go('help'); else if (h==='write') go('write'); else go('works');
 }
 function go(name, extra={}, hash){
   S.view={name,...extra};
   setHash(hash ?? (name==='work' ? 'work-'+extra.id : (HASH[name] ?? '')));
-  for (const n of ['works','fandoms','shelf','help']){ const b=$('#nav-'+n); if (b) b.setAttribute('aria-current', String(n===name)); }
+  for (const n of ['works','fandoms','shelf','help','write']){ const b=$('#nav-'+n); if (b) b.setAttribute('aria-current', String(n===name)); }
   render(); window.scrollTo({top:0});
 }
-function render(){ ({works:renderWorks, fandoms:renderFandoms, work:renderWork, shelf:renderShelf, help:renderHelp}[S.view.name]||renderWorks)(); }
+function render(){ ({works:renderWorks, fandoms:renderFandoms, work:renderWork, shelf:renderShelf, help:renderHelp, write:renderWrite}[S.view.name]||renderWorks)(); }
 function filterBy(patch){ Object.assign(F, freshFilters(), patch); go('works'); }
 
 /* ---------- works listing ---------- */
@@ -303,6 +303,7 @@ function renderWork(){
   $('#sz-up').onclick=()=>setReaderSize(readerSize()+.06);
   $('#rd-mode').value=store.get('read-mode','orig');
   $('#rd-mode').onchange=e=>{ store.set('read-mode',e.target.value); loadChapters(w); };
+  const fb=$('#feedback'); if (!fb.textContent.trim() && !fb.querySelector('.giscus')) fb.hidden=true;
   loadChapters(w); mountGiscus(w);
 }
 function scrollToChapters(){ const c=$('#chapters'); if (c) window.scrollTo({top:c.getBoundingClientRect().top+scrollY-70}); }
@@ -377,7 +378,7 @@ function renderHelp(){
     <h2 class="heading" style="margin:0">Upload Fics</h2>
     <div class="rules"><strong>A backup shelf for fics you’ve saved</strong><ul>
       <li>AO3 is back, so please read, leave kudos and comment there. Fic Shelter keeps backups in case it goes down again.</li>
-      <li>Upload copies you downloaded from AO3 as <strong>HTML</strong> or <strong>EPUB</strong>, without changing them.</li>
+      <li>Upload copies you downloaded from AO3 as <strong>HTML</strong>, <strong>EPUB</strong> or <strong>PDF</strong>, without changing them.</li>
       <li>The original author, tags, summary and link are read from the file and always shown.</li>
       <li>Fics with the “Underage” warning are not published here.</li>
       <li>If an author asks for their work to be taken down, it will be removed.</li></ul></div>
@@ -389,7 +390,9 @@ function renderHelp(){
         <li>At the bottom, press <strong>Commit changes</strong>.</li>
         <li>Wait 1–2 minutes and reload this site. Your fics will be there, credited to their authors.</li>
       </ol>
-      <p class="formnote">Files that can’t be read (PDF, MOBI, AZW3, or a broken file) are skipped. Use the EPUB or HTML version instead.</p></section>
+      <p class="formnote">HTML and EPUB give the best result. PDFs work too (including AO3 pages saved as PDF from Safari or Chrome), but italics and bold are lost and a paragraph may occasionally be split or joined. MOBI, AZW3 and broken files are skipped.</p></section>
+    <section class="panel"><h3 style="font-size:1.05rem">Want to post your own fic?</h3>
+      <p>Use the <button class="lk" data-nav="write">Write</button> page: fill in the tags and chapters, then publish it to GitHub in two clicks.</p></section>
     <section class="panel"><h3 style="font-size:1.05rem">Nobody has a fic saved? Try the Wayback Machine</h3>
       <p>The Internet Archive saved copies of many AO3 works. Paste a fic’s AO3 link or work number to look for it.</p>
       <div class="inline2"><input type="text" id="wb-in" placeholder="https://archiveofourown.org/works/123456" aria-label="AO3 link or work number"></div>
@@ -403,6 +406,124 @@ function renderHelp(){
     const v=inp.value.trim(), id=ao3Id(v) || (/^\d+$/.test(v)?v:'');
     out.innerHTML = id ? `${extLink(waybackUrl(id),'Open the latest saved copy','btn sm')} ${extLink(waybackAll(id),'See all saved copies')}` : (v?'That doesn’t look like an AO3 work link. It should contain /works/ and a number.':'The links will appear here.');
   });
+}
+
+/* ---------- write a fic ---------- */
+const blankChapter = () => ({title:'', notes:'', body:'', endNotes:''});
+const blankDraft = () => ({title:'', author:'', rating:'', warns:[], cats:[], fandoms:'', rels:'', chars:'', tags:'', lang:'English', series:'', part:'', total:'', summary:'', notes:'', endNotes:'', chapters:[blankChapter()]});
+const countWords = s => (String(s||'').trim().match(/\S+/g)||[]).length;
+const slugify = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60) || 'my-fic';
+let draftT;
+function readDraft(){
+  const v=id=>{ const el=$('#'+id); return el?el.value:''; }, checked=n=>[...document.querySelectorAll(`input[name="${n}"]:checked`)].map(x=>x.value);
+  return { title:v('w-title'), author:v('w-author'), rating:v('w-rating'), warns:checked('w-warn'), cats:checked('w-cat'), fandoms:v('w-fandoms'), rels:v('w-rels'), chars:v('w-chars'), tags:v('w-tags'),
+    lang:v('w-lang'), series:v('w-series'), part:v('w-part'), total:v('w-total'), summary:v('w-summary'), notes:v('w-notes'), endNotes:v('w-endnotes'),
+    chapters:[...document.querySelectorAll('.wch')].map(ch=>({title:ch.querySelector('.ch-title').value, notes:ch.querySelector('.ch-notes').value, body:ch.querySelector('.ch-body').value, endNotes:ch.querySelector('.ch-end').value})) };
+}
+function saveDraft(){ const d=readDraft(); store.set('draft',d); const n=d.chapters.reduce((s,c)=>s+countWords(c.body),0); const wc=$('#w-count'); if (wc) wc.textContent=`${plural(n,'word','words')} · draft saved on this device`; document.querySelectorAll('.wch').forEach((ch,i)=>{ const c=ch.querySelector('.ch-wc'); if (c) c.textContent=plural(countWords(d.chapters[i].body),'word','words'); }); }
+function toFile(d){
+  const L=['---'], one=(k,v)=>{ v=String(v||'').replace(/\s*\n\s*/g,' ').trim(); if (v) L.push(`${k}: ${v}`); };
+  const block=(k,v)=>{ v=String(v||'').replace(/\r/g,'').trim(); if (!v) return; L.push(`${k}: |`); v.split('\n').forEach(l=>L.push('  '+l)); };
+  one('title',d.title); one('author',d.author); one('rating',(RATINGS[d.rating]||RATINGS.N).l);
+  one('warnings',d.warns.map(x=>WARN[x]).join(', ')); one('categories',d.cats.map(x=>CATS[x]).join(', '));
+  one('fandoms',d.fandoms); one('relationships',d.rels); one('characters',d.chars); one('tags',d.tags); one('language',d.lang||'English');
+  if (d.series.trim()) one('series',`${d.series.trim()} | ${parseInt(d.part,10)||1}`);
+  one('chapters_total',parseInt(d.total,10)||'?');
+  block('summary',d.summary); block('notes',d.notes); block('end_notes',d.endNotes);
+  L.push('---','');
+  const para=s=>String(s||'').replace(/\r/g,'').trim().replace(/\n\s*\n/g,'\n');
+  d.chapters.filter(c=>c.body.trim()).forEach((c,i)=>{
+    L.push(`# Chapter ${i+1}${c.title.trim()?': '+c.title.replace(/\s*\n\s*/g,' ').trim():''}`,'');
+    if (c.notes.trim()) L.push('Notes: '+para(c.notes),'');
+    L.push(c.body.replace(/\r/g,'').trim().replace(/^# /gm,'\\# '),'');
+    if (c.endNotes.trim()) L.push('End notes: '+para(c.endNotes),'');
+  });
+  return L.join('\n');
+}
+function draftProblems(d){
+  const p=[];
+  if (!d.title.trim()) p.push('a title'); if (!d.author.trim()) p.push('your pseud'); if (!d.rating) p.push('a rating');
+  if (!d.warns.length) p.push('at least one archive warning'); if (!d.fandoms.trim()) p.push('a fandom (write “Original Work” if it’s not fanfic)');
+  if (!d.chapters.some(c=>c.body.trim())) p.push('the text of at least one chapter');
+  return p;
+}
+function renderWrite(){
+  const d=Object.assign(blankDraft(), store.get('draft',{}));
+  if (!d.chapters||!d.chapters.length) d.chapters=[blankChapter()];
+  const f=(id,label,hint,control,req)=>`<div class="frow"><label class="lab" for="${id}">${label}${req?' <span class="req-star" aria-hidden="true">*</span>':''}${hint?`<small>${hint}</small>`:''}</label><div>${control}</div></div>`;
+  const txt=(id,val,ph='')=>`<input type="text" id="${id}" value="${esc(val)}" placeholder="${esc(ph)}">`;
+  const area=(id,val,rows=3,ph='')=>`<textarea id="${id}" rows="${rows}" placeholder="${esc(ph)}">${esc(val)}</textarea>`;
+  view.innerHTML=`<div class="help write">
+    <h2 class="heading" style="margin:0">Write a Fic</h2>
+    <div class="rules"><strong>Post your own work on Fic Shelter</strong><ul>
+      <li>Your draft is saved in this browser as you type, so you can come back later on this device.</li>
+      <li>When it’s ready, press <strong>Publish on GitHub</strong>. The fic is copied, GitHub opens, you paste it and press <strong>Commit changes</strong>. You need to be a collaborator on the site’s repository.</li>
+      <li>Leave a blank line between paragraphs. Use *italics*, **bold** and a line with *** for a scene break.</li>
+      <li>Rate and warn honestly. Sexual content involving minors isn’t allowed and won’t be published.</li></ul></div>
+    <form id="wf" class="post-form" novalidate>
+      <fieldset class="panel"><legend>Tags</legend>
+        ${f('w-rating','Rating','',`<select id="w-rating"><option value="">Choose a rating</option>${Object.entries(RATINGS).map(([k,r])=>`<option value="${k}" ${d.rating===k?'selected':''}>${r.l}</option>`).join('')}</select>`,true)}
+        <div class="frow"><span class="lab">Archive Warnings <span class="req-star" aria-hidden="true">*</span><small>Check all that apply</small></span><div class="ckgrid">${Object.entries(WARN).map(([k,l])=>`<label><input type="checkbox" name="w-warn" value="${k}" ${d.warns.includes(k)?'checked':''}> ${l}</label>`).join('')}</div></div>
+        ${f('w-fandoms','Fandoms','Comma-separated',txt('w-fandoms',d.fandoms,'e.g. ATEEZ (Band)'),true)}
+        <div class="frow"><span class="lab">Categories</span><div class="ckgrid">${Object.entries(CATS).map(([k,l])=>`<label><input type="checkbox" name="w-cat" value="${k}" ${d.cats.includes(k)?'checked':''}> ${l}</label>`).join('')}</div></div>
+        ${f('w-rels','Relationships','Comma-separated. “/” for romantic, “&” for platonic',txt('w-rels',d.rels,'Character A/Character B'))}
+        ${f('w-chars','Characters','Comma-separated. Their names stay untranslated when readers translate your fic',txt('w-chars',d.chars))}
+        ${f('w-tags','Additional Tags','Comma-separated',txt('w-tags',d.tags,'Fluff, Alternate Universe, Slow Burn'))}
+      </fieldset>
+      <fieldset class="panel"><legend>Preface</legend>
+        ${f('w-title','Work Title','',txt('w-title',d.title),true)}
+        ${f('w-author','Pseud','The name you write under',txt('w-author',d.author),true)}
+        ${f('w-summary','Summary','',area('w-summary',d.summary,4))}
+        ${f('w-notes','Beginning Notes','Optional',area('w-notes',d.notes))}
+        ${f('w-endnotes','End Notes','Optional',area('w-endnotes',d.endNotes))}
+      </fieldset>
+      <fieldset class="panel"><legend>Associations</legend>
+        ${f('w-series','Series','Optional',`<div class="inline2"><input type="text" id="w-series" value="${esc(d.series)}" placeholder="Series name"><label for="w-part" class="muted">Part</label><input type="number" id="w-part" min="1" style="max-width:80px" value="${esc(d.part)}"></div>`)}
+        ${f('w-lang','Language','The language you’re writing in',txt('w-lang',d.lang))}
+        ${f('w-total','Planned chapters','Leave blank if you don’t know yet',`<input type="number" id="w-total" min="1" style="max-width:120px" value="${esc(d.total)}" placeholder="?">`)}
+      </fieldset>
+      <div id="w-chapters" class="write-chapters">${d.chapters.map((c,i)=>chapterEditor(c,i,d.chapters.length)).join('')}</div>
+      <div class="row"><button type="button" class="btn" id="w-addch">+ Add chapter</button></div>
+    </form>
+    <div class="panel write-actions">
+      <p class="formnote" id="w-count"></p>
+      <div class="row"><button type="button" class="btn primary" id="w-pub">Publish on GitHub</button><button type="button" class="btn" id="w-dl">Download file</button><button type="button" class="btn" id="w-prev">Preview</button><span style="margin-left:auto" id="w-clear-wrap"><button type="button" class="btn danger" id="w-clear">Start over</button></span></div>
+      <div id="w-msg" class="formnote" role="status"></div>
+    </div>
+    <div id="w-preview"></div>
+  </div>`;
+  saveDraft();
+  $('#wf').addEventListener('input',()=>{ clearTimeout(draftT); draftT=setTimeout(saveDraft,400); });
+  $('#wf').addEventListener('change',saveDraft);
+  $('#w-addch').onclick=()=>{ const cur=readDraft(); cur.chapters.push(blankChapter()); store.set('draft',cur); renderWrite(); const all=document.querySelectorAll('.wch'); all[all.length-1].scrollIntoView({behavior:'smooth'}); };
+  $('#w-chapters').addEventListener('click',e=>{ const b=e.target.closest('[data-rmch]'); if (!b) return; const cur=readDraft(); cur.chapters.splice(+b.dataset.rmch,1); store.set('draft',cur); renderWrite(); });
+  $('#w-clear').onclick=()=>{ const w=$('#w-clear-wrap'); w.innerHTML='<span class="confirm">Delete this draft? <button type="button" class="btn sm danger" id="w-clear-yes">Delete</button> <button type="button" class="btn sm" id="w-clear-no">Keep</button></span>';
+    $('#w-clear-yes').onclick=()=>{ store.set('draft',blankDraft()); renderWrite(); toast('Draft deleted.'); }; $('#w-clear-no').onclick=()=>renderWrite(); };
+  const ready=()=>{ saveDraft(); const dd=readDraft(), p=draftProblems(dd); if (p.length){ $('#w-msg').innerHTML=`<span class="errline">Before publishing, add ${esc(p.join(', '))}.</span>`; return null; } return dd; };
+  $('#w-prev').onclick=()=>{ const dd=readDraft(); const w={id:'preview',title:dd.title||'Untitled',creator:dd.author||'you',lang:dd.lang,characters:list(dd.chars),relationships:list(dd.rels),chapters:dd.chapters.filter(c=>c.body.trim()).map(c=>({title:c.title}))};
+    const box=$('#w-preview'); box.innerHTML=`<div class="panel"><div class="preface"><div class="titles"><h2 class="title">${esc(w.title)}</h2><p class="byline">by ${esc(w.creator)}</p></div>${dd.summary?`<div class="notesbox"><h3>Summary:</h3><blockquote>${md(dd.summary)}</blockquote></div>`:''}</div>
+      <div class="chapters">${dd.chapters.filter(c=>c.body.trim()).map((c,i)=>chapterHTML(w,i,c)).join('')||'<p class="muted">Nothing to preview yet.</p>'}</div></div>`; box.scrollIntoView({behavior:'smooth'}); };
+  $('#w-dl').onclick=()=>{ const dd=ready(); if (!dd) return; const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([toFile(dd)],{type:'text/markdown'})); a.download=slugify(dd.title)+'.md'; document.body.appendChild(a); a.click(); a.remove(); $('#w-msg').textContent='File downloaded. You can upload it to the fics/written folder on GitHub.'; };
+  $('#w-pub').onclick=()=>{
+    const dd=ready(); if (!dd) return;
+    const repo=S.config.repoUrl; if (!repo){ $('#w-msg').textContent='The site doesn’t know its GitHub repository yet. Use “Download file” and upload it to the fics/written folder instead.'; return; }
+    const name=slugify(dd.title)+'.md', text=toFile(dd), url=`${repo}/new/main/fics/written?filename=${encodeURIComponent(name)}`;
+    const win=window.open(url,'_blank','noopener');
+    const done=ok=>{ $('#w-msg').innerHTML = ok
+      ? `<strong>Copied!</strong> In the GitHub tab, click the big editor, paste with <strong>Ctrl + V</strong> (or long-press → Paste on a phone) and press <strong>Commit changes</strong>. Your fic appears here 1–2 minutes later.${win?'':` If GitHub didn’t open, <a href="${esc(url)}" target="_blank" rel="noopener">open it here</a>.`}`
+      : `Your browser didn’t let the site copy the text. Select everything in the box below, copy it, then paste it on <a href="${esc(url)}" target="_blank" rel="noopener">GitHub</a>.<textarea readonly rows="8" style="margin-top:8px" id="w-out">${esc(text)}</textarea>`;
+      const o=$('#w-out'); if (o){ o.focus(); o.select(); } };
+    navigator.clipboard ? navigator.clipboard.writeText(text).then(()=>done(true),()=>done(false)) : done(false);
+  };
+}
+function chapterEditor(c,i,n){
+  return `<fieldset class="panel wch"><legend>Chapter ${i+1}</legend>
+    <div class="frow"><label class="lab" for="ch-title-${i}">Chapter Title<small>Optional</small></label><div><input type="text" class="ch-title" id="ch-title-${i}" value="${esc(c.title)}"></div></div>
+    <div class="frow"><label class="lab" for="ch-notes-${i}">Chapter Notes<small>Optional, shown before the chapter</small></label><div><textarea class="ch-notes" id="ch-notes-${i}" rows="2">${esc(c.notes)}</textarea></div></div>
+    <div class="frow"><label class="lab" for="ch-body-${i}">Chapter Text <span class="req-star" aria-hidden="true">*</span><small class="ch-wc"></small></label><div><textarea class="ch-body" id="ch-body-${i}" rows="16" placeholder="Write or paste your chapter here…">${esc(c.body)}</textarea></div></div>
+    <div class="frow"><label class="lab" for="ch-end-${i}">Chapter End Notes<small>Optional</small></label><div><textarea class="ch-end" id="ch-end-${i}" rows="2">${esc(c.endNotes)}</textarea></div></div>
+    ${n>1?`<div class="row" style="justify-content:flex-end"><button type="button" class="btn sm danger" data-rmch="${i}">Remove this chapter</button></div>`:''}
+  </fieldset>`;
 }
 
 /* ---------- global events ---------- */
