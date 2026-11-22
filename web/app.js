@@ -1,7 +1,7 @@
 (() => {
 const RATINGS = {G:{s:'G',l:'General Audiences'}, T:{s:'T',l:'Teen And Up Audiences'}, M:{s:'M',l:'Mature'}, E:{s:'E',l:'Explicit'}, N:{s:'–',l:'Not Rated'}};
-const WARN = {choose:'Creator Chose Not To Use Archive Warnings', none:'No Archive Warnings Apply', violence:'Graphic Depictions Of Violence', death:'Major Character Death', noncon:'Rape/Non-Con', underage:'Underage'};
-const SERIOUS = ['violence','death','noncon','underage'];
+const WARN = {choose:'Creator Chose Not To Use Archive Warnings', none:'No Archive Warnings Apply', violence:'Graphic Depictions Of Violence', death:'Major Character Death', noncon:'Rape/Non-Con'};
+const SERIOUS = ['violence','death','noncon'];
 const CATS = {ff:'F/F', fm:'F/M', gen:'Gen', mm:'M/M', multi:'Multi', other:'Other'};
 const CSYM = {ff:'FF', fm:'FM', gen:'G', mm:'MM', multi:'+', other:'O'};
 const PAGE = 20;
@@ -16,10 +16,11 @@ const view = $('#view');
 /* ---------- helpers ---------- */
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const inline = t => t.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g,'$1<em>$2</em>');
-function md(src){
+function mdBlocks(src){
   return esc(src||'').replace(/\r/g,'').split(/\n\s*\n/).map(b=>b.trim()).filter(Boolean)
-    .map(b => /^(\*\s*){3,}$|^-{3,}$|^~{3,}$/.test(b) ? '<hr>' : '<p>'+inline(b).replace(/\n/g,'<br>')+'</p>').join('');
+    .map(b => /^(\*\s*){3,}$|^-{3,}$|^~{3,}$/.test(b) ? '<hr>' : '<p>'+inline(b).replace(/\n/g,'<br>')+'</p>');
 }
+const md = src => mdBlocks(src).join('');
 const list = s => [...new Set(String(s||'').split(',').map(x=>x.trim()).filter(Boolean))].slice(0,50);
 const norm = s => String(s).trim().toLowerCase();
 const nf = new Intl.NumberFormat('en');
@@ -71,7 +72,7 @@ function tagLinks(w){
 }
 const fandomLinks = w => (w.fandoms||[]).map(f=>`<button class="tagl" data-tag="${esc(f)}">${esc(f)}</button>`).join(', ');
 const byLink = w => `<button class="lk" data-creator="${esc(w.creator)}" translate="no">${esc(w.creator)}</button>`;
-const uplLine = w => `<p class="upl">Archived copy${w.uploader?` · shared by <span translate="no">${esc(w.uploader)}</span>`:''}${w.sourceUrl?` · <a href="${esc(w.sourceUrl)}" target="_blank" rel="noopener">original on AO3</a>`:''}</p>`;
+const uplLine = w => `<p class="upl">Backup copy${w.uploader?` · shared by <span translate="no">${esc(w.uploader)}</span>`:''}${w.sourceUrl?` · <a href="${esc(w.sourceUrl)}" target="_blank" rel="noopener">Read on AO3</a>`:''}</p>`;
 function statsDL(w){
   const s=[['Language',esc(w.lang||'English')],['Words',nf.format(w.words||0)],['Chapters',chapLabel(w)]];
   if (w.published) s.push(['Originally posted',esc(w.published)]);
@@ -255,6 +256,7 @@ function renderWork(){
       <li><button class="btn sm" id="wn-later"></button></li>
       ${ao3Id(w.sourceUrl)?`<li>${extLink(waybackUrl(ao3Id(w.sourceUrl)),'Wayback Machine copy','btn sm')}</li>`:''}
     </ul>
+    ${w.sourceUrl?`<div class="ao3-cta">${extLink(w.sourceUrl,'Read on AO3 ♥','btn primary')}<p>This is a backup copy. Reading on AO3 counts as a hit for <span translate="no">${esc(w.creator)}</span>, and there you can leave kudos and comments.</p></div>`:''}
     <dl class="meta" aria-label="Work details">
       ${dd('Rating',`<button class="tagl" data-rating="${rk(w)}">${esc(RATINGS[rk(w)].l)}</button>`)}
       ${dd('Archive Warning',(w.warnings||[]).map(x=>`<button class="tagl warn" data-warn="${x}">${esc(WARN[x]||x)}</button>`).join(', '))}
@@ -272,13 +274,21 @@ function renderWork(){
       ${w.summary?`<div class="notesbox"><h3>Summary:</h3><blockquote>${md(w.summary)}</blockquote></div>`:''}
       ${w.notes?`<div class="notesbox"><h3>Notes:</h3><blockquote>${md(w.notes)}</blockquote></div>`:''}
     </div>
-    <div class="sizer"><span class="muted" style="font-size:.85rem">Text size</span><button class="btn sm" id="sz-dn" aria-label="Smaller text">A−</button><button class="btn sm" id="sz-up" aria-label="Larger text">A+</button></div>
+    <div class="sizer"><label class="muted" for="rd-mode" style="font-size:.85rem">Reading</label><select id="rd-mode" style="width:auto"><option value="orig">Original only</option><option value="bi">Original + translation</option></select><span class="muted" style="font-size:.85rem;margin-left:8px">Text size</span><button class="btn sm" id="sz-dn" aria-label="Smaller text">A−</button><button class="btn sm" id="sz-up" aria-label="Larger text">A+</button></div>
+    <details class="translate-help"><summary>Translate this fic (Spanish ⇄ English)</summary>
+      <p>Your browser translates it on your device. Nothing is saved or published.</p>
+      <ol>
+        <li>Choose <strong>Original + translation</strong> above to keep each paragraph in its original language, with the translation underneath. Or keep <strong>Original only</strong> to translate the text in place.</li>
+        <li>Then translate the page. <strong>Chrome or Edge on a computer:</strong> right-click → Translate. <strong>Chrome on Android:</strong> ⋮ menu → Translate. <strong>Safari on iPhone or iPad:</strong> the <strong>aA</strong> button → Translate.</li>
+      </ol>
+      <p>Character names, nicknames and honorifics like <em>hyung</em> or <em>-san</em> stay exactly as the author wrote them, so the translation keeps the original flavour.</p>
+    </details>
     <div class="chapters" id="chapters" aria-live="polite"><p class="muted" style="text-align:center">Loading…</p></div>
     <div class="preface" id="endnotes"></div>
     <ul class="work-nav">${multi&&!S.view.whole?`<li><button class="btn sm" data-chstep="-1">← Previous Chapter</button></li>`:''}<li><button class="btn sm" id="wn-top">↑ Top</button></li>${multi&&!S.view.whole?`<li><button class="btn sm" data-chstep="1">Next Chapter →</button></li>`:''}</ul>
     <section class="feedback" id="feedback">
       ${ao3Id(w.sourceUrl)?`<p class="kudos-line">Want to see it as it was on AO3? Try the ${extLink(waybackUrl(ao3Id(w.sourceUrl)),'Wayback Machine copy')} or browse ${extLink(waybackAll(ao3Id(w.sourceUrl)),'all saved copies')}. Not every fic was saved, and adult-rated works sometimes only show AO3’s warning page.</p>`:''}
-      ${w.sourceUrl?`<p class="kudos-line">Loved it? When AO3 is back, leave kudos and a comment for <span translate="no">${esc(w.creator)}</span> on <a href="${esc(w.sourceUrl)}" target="_blank" rel="noopener">the original work</a>.</p>`:''}
+      ${w.sourceUrl?`<p class="kudos-line">Loved it? Leave kudos and a comment for <span translate="no">${esc(w.creator)}</span> on <a href="${esc(w.sourceUrl)}" target="_blank" rel="noopener">the original work</a>.</p>`:''}
       ${S.config.giscus&&S.config.giscus.repoId?'<h3 id="com-h">Comments</h3><div class="giscus-wrap"><div class="giscus"></div></div>':''}
     </section>
   </article>`;
@@ -291,15 +301,40 @@ function renderWork(){
   paintPrefs();
   $('#sz-dn').onclick=()=>setReaderSize(readerSize()-.06);
   $('#sz-up').onclick=()=>setReaderSize(readerSize()+.06);
+  $('#rd-mode').value=store.get('read-mode','orig');
+  $('#rd-mode').onchange=e=>{ store.set('read-mode',e.target.value); loadChapters(w); };
   loadChapters(w); mountGiscus(w);
 }
 function scrollToChapters(){ const c=$('#chapters'); if (c) window.scrollTo({top:c.getBoundingClientRect().top+scrollY-70}); }
+const LANGCODE = {english:'en', 'español':'es', espanol:'es', spanish:'es', 'português':'pt', portugues:'pt', 'français':'fr', francais:'fr', deutsch:'de', italiano:'it', '한국어':'ko', korean:'ko', '日本語':'ja', japanese:'ja', 'русский':'ru', polski:'pl', 'bahasa indonesia':'id', 'tiếng việt':'vi'};
+const langCode = w => LANGCODE[norm(w.lang||'English')] || '';
+const HONORIFICS = ['hyung','hyungie','noona','nuna','oppa','unnie','eonni','sunbae','sunbaenim','hoobae','maknae','jagiya','jagi','aegi','eomma','umma','appa','senpai','sensei','kouhai','onii-chan','onee-chan','nii-san','nee-san'];
+// Names, nicknames and honorifics that the browser should leave untranslated.
+function glossary(w){
+  const terms=new Set(), cap=t=>t.charAt(0).toUpperCase()+t.slice(1);
+  const add=t=>{ t=String(t||'').replace(/\([^)]*\)/g,' ').replace(/\s+/g,' ').trim(); if (t.length>=2) terms.add(t); };
+  const addName=n=>{ add(n); n.replace(/\([^)]*\)/g,' ').trim().split(/\s+/).forEach(p=>{ if (p.length>=3 && /^\p{Lu}/u.test(p)) add(p); }); };
+  (w.characters||[]).forEach(addName);
+  (w.relationships||[]).forEach(r=>r.replace(/\([^)]*\)/g,' ').split(/[\/&]/).forEach(addName));
+  HONORIFICS.forEach(h=>{ add(h); add(cap(h)); });
+  return [...terms].sort((a,b)=>b.length-a.length);
+}
+function protect(html, terms){
+  const alts=terms.map(t=>esc(t).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'));
+  const re=new RegExp('(?<![\\p{L}\\p{N}])(?:(?:'+(alts.join('|')||'(?!)')+')(?:-(?:san|kun|chan|sama|nim|ssi|ah|ya))?|\\p{L}+-(?:san|kun|chan|sama|nim|ssi))(?![\\p{L}\\p{N}])','gu');
+  return html.replace(/(<[^>]+>)|([^<]+)/g,(m,tag,text)=>tag?tag:text.replace(re,'<span translate="no" class="term">$&</span>'));
+}
+function bodyHTML(w, text){
+  const terms=glossary(w), lc=langCode(w), la=lc?` lang="${lc}"`:'', blocks=mdBlocks(text);
+  if (store.get('read-mode','orig')!=='bi') return protect(blocks.join(''),terms);
+  return blocks.map(b=> b==='<hr>' ? b : `<div class="bi"><div class="bi-orig" translate="no"${la}>${b}</div><div class="bi-tr"${la}>${protect(b,terms)}</div></div>`).join('');
+}
 function chapterHTML(w,i,d){
   const c=w.chapters[i], multi=w.chapters.length>1, t=c.title;
   return `<section class="chapter" id="ch-${i}">
     ${multi||t?`<h3 class="chap-title">${multi?`Chapter ${i+1}`:''}${multi&&t?': ':''}${esc(t||'')}</h3>`:''}
     ${d&&d.notes?`<div class="cnotes"><h4>Notes:</h4>${md(d.notes)}</div>`:''}
-    <div class="userstuff">${d?md(d.body):'<p class="muted">Loading chapter…</p>'}</div>
+    <div class="userstuff"${langCode(w)?` lang="${langCode(w)}"`:''}>${d?bodyHTML(w,d.body):'<p class="muted">Loading chapter…</p>'}</div>
     ${d&&d.endNotes?`<div class="cnotes"><h4>Chapter End Notes:</h4>${md(d.endNotes)}</div>`:''}
   </section>`;
 }
@@ -340,7 +375,8 @@ function renderHelp(){
   const repo=S.config.repoUrl||'', up=repo?repo+'/upload/main/fics':'', issues=repo?repo+'/issues/new':'';
   view.innerHTML=`<div class="help">
     <h2 class="heading" style="margin:0">Upload Fics</h2>
-    <div class="rules"><strong>Keep saved fics safe while AO3 is down</strong><ul>
+    <div class="rules"><strong>A backup shelf for fics you’ve saved</strong><ul>
+      <li>AO3 is back, so please read, leave kudos and comment there. Fic Shelter keeps backups in case it goes down again.</li>
       <li>Upload copies you downloaded from AO3 as <strong>HTML</strong> or <strong>EPUB</strong>, without changing them.</li>
       <li>The original author, tags, summary and link are read from the file and always shown.</li>
       <li>Fics with the “Underage” warning are not published here.</li>
