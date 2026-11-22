@@ -16,7 +16,7 @@ async function walk(dir) {
   for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) out.push(...await walk(p));
-    else if (/\.(x?html?|epub)$/i.test(e.name)) out.push(p);
+    else if (/\.(x?html?|epub|pdf)$/i.test(e.name) || (/\.md$/i.test(e.name) && !/^readme\.md$/i.test(e.name))) out.push(p);
   }
   return out.sort();
 }
@@ -47,7 +47,7 @@ for (const file of await walk(FICS)) {
     if (!r.chapters.length) { report.skipped.push([rel, 'no story text found']); continue; }
     const ao3 = (r.sourceUrl.match(/works\/(\d+)/) || [])[1];
     if (ao3 && takedown.has(ao3)) { report.skipped.push([rel, 'listed in takedown.txt']); continue; }
-    const id = ao3 ? 'ao3-' + ao3 : 'f-' + crypto.createHash('sha1').update(rel).digest('hex').slice(0, 10);
+    const id = ao3 ? 'ao3-' + ao3 : (r.original ? 'fs-' : 'f-') + crypto.createHash('sha1').update(rel).digest('hex').slice(0, 10);
     if (takedown.has(id)) { report.skipped.push([rel, 'listed in takedown.txt']); continue; }
     if (seen.has(id)) { report.skipped.push([rel, 'duplicate of ' + seen.get(id)]); continue; }
     seen.set(id, rel);
@@ -60,6 +60,7 @@ for (const file of await walk(FICS)) {
       category: r.category, fandoms: r.fandoms, relationships: r.relationships, characters: r.characters, tags: r.tags,
       summary: r.summary, notes: r.notes, endNotes: r.endNotes, lang: r.lang || 'English', series: r.series,
       expected: complete ? chapters.length : r.expected, complete, chapters, words: chapters.reduce((s, c) => s + c.words, 0), added: git.added,
+      original: !!r.original, fromPdf: !!r.fromPdf,
     });
     await fs.writeFile(path.join(OUT, 'data', 'works', id + '.json'), JSON.stringify({ chapters: r.chapters }));
     report.ok++;
