@@ -72,7 +72,7 @@ function tagLinks(w){
 }
 const fandomLinks = w => (w.fandoms||[]).map(f=>`<button class="tagl" data-tag="${esc(f)}">${esc(f)}</button>`).join(', ');
 const byLink = w => `<button class="lk" data-creator="${esc(w.creator)}" translate="no">${esc(w.creator)}</button>`;
-const uplLine = w => w.original ? `<p class="upl">Written for Fic Shelter${w.uploader?` · posted by <span translate="no">${esc(w.uploader)}</span>`:''}</p>` : `<p class="upl">Backup copy${w.fromPdf?' (from a PDF, formatting simplified)':''}${w.uploader?` · shared by <span translate="no">${esc(w.uploader)}</span>`:''}${w.sourceUrl?` · <a href="${esc(w.sourceUrl)}" target="_blank" rel="noopener">Read on AO3</a>`:''}</p>`;
+const uplLine = w => w.original ? `<p class="upl">Written for Fic Shelter</p>` : `<p class="upl">Backup copy${w.fromPdf?' (from a PDF, formatting simplified)':''}${w.sourceUrl?` · <a href="${esc(w.sourceUrl)}" target="_blank" rel="noopener">Read on AO3</a>`:''}</p>`;
 function statsDL(w){
   const s=[['Language',esc(w.lang||'English')],['Words',nf.format(w.words||0)],['Chapters',chapLabel(w)]];
   if (w.published) s.push(['Originally posted',esc(w.published)]);
@@ -271,18 +271,11 @@ function renderWork(){
     </dl>
     <div class="preface">
       <div class="titles"><h2 class="title">${esc(w.title)}</h2><p class="byline">by ${byLink(w)}</p>${uplLine(w)}</div>
-      ${w.summary?`<div class="notesbox"><h3>Summary:</h3><blockquote>${md(w.summary)}</blockquote></div>`:''}
-      ${w.notes?`<div class="notesbox"><h3>Notes:</h3><blockquote>${md(w.notes)}</blockquote></div>`:''}
+      ${w.summary?`<div class="notesbox"><h3>Summary:</h3><blockquote data-tr="summary">${md(w.summary)}</blockquote></div>`:''}
+      ${w.notes?`<div class="notesbox"><h3>Notes:</h3><blockquote data-tr="notes">${md(w.notes)}</blockquote></div>`:''}
     </div>
-    <div class="sizer"><label class="muted" for="rd-mode" style="font-size:.85rem">Reading</label><select id="rd-mode" style="width:auto"><option value="orig">Original only</option><option value="bi">Original + translation</option></select><span class="muted" style="font-size:.85rem;margin-left:8px">Text size</span><button class="btn sm" id="sz-dn" aria-label="Smaller text">A−</button><button class="btn sm" id="sz-up" aria-label="Larger text">A+</button></div>
-    <details class="translate-help"><summary>Translate this fic (Spanish ⇄ English)</summary>
-      <p>Your browser translates it on your device. Nothing is saved or published.</p>
-      <ol>
-        <li>Choose <strong>Original + translation</strong> above to keep each paragraph in its original language, with the translation underneath. Or keep <strong>Original only</strong> to translate the text in place.</li>
-        <li>Then translate the page. <strong>Chrome or Edge on a computer:</strong> right-click → Translate. <strong>Chrome on Android:</strong> ⋮ menu → Translate. <strong>Safari on iPhone or iPad:</strong> the <strong>aA</strong> button → Translate.</li>
-      </ol>
-      <p>Character names, nicknames and honorifics like <em>hyung</em> or <em>-san</em> stay exactly as the author wrote them, so the translation keeps the original flavour.</p>
-    </details>
+    <div class="sizer"><label class="muted" for="rd-lang" style="font-size:.85rem">Read in</label><select id="rd-lang" style="width:auto"><option value="">Original (${esc(w.lang||'English')})</option><option value="es">Español</option><option value="en">English</option></select><label class="muted" style="font-size:.85rem;display:inline-flex;gap:5px;align-items:center"><input type="checkbox" id="rd-both"> Show original too</label><span class="muted" style="font-size:.85rem;margin-left:8px">Text size</span><button class="btn sm" id="sz-dn" aria-label="Smaller text">A−</button><button class="btn sm" id="sz-up" aria-label="Larger text">A+</button></div>
+    <p class="formnote tr-note" id="tr-status" role="status"></p>
     <div class="chapters" id="chapters" aria-live="polite"><p class="muted" style="text-align:center">Loading…</p></div>
     <div class="preface" id="endnotes"></div>
     <ul class="work-nav">${multi&&!S.view.whole?`<li><button class="btn sm" data-chstep="-1">← Previous Chapter</button></li>`:''}<li><button class="btn sm" id="wn-top">↑ Top</button></li>${multi&&!S.view.whole?`<li><button class="btn sm" data-chstep="1">Next Chapter →</button></li>`:''}</ul>
@@ -301,8 +294,10 @@ function renderWork(){
   paintPrefs();
   $('#sz-dn').onclick=()=>setReaderSize(readerSize()-.06);
   $('#sz-up').onclick=()=>setReaderSize(readerSize()+.06);
-  $('#rd-mode').value=store.get('read-mode','orig');
-  $('#rd-mode').onchange=e=>{ store.set('read-mode',e.target.value); loadChapters(w); };
+  $('#rd-lang').value=store.get('read-lang','');
+  $('#rd-both').checked=store.get('read-both',false);
+  $('#rd-lang').onchange=e=>{ store.set('read-lang',e.target.value); loadChapters(w); };
+  $('#rd-both').onchange=e=>{ store.set('read-both',e.target.checked); loadChapters(w); };
   const fb=$('#feedback'); if (!fb.textContent.trim() && !fb.querySelector('.giscus')) fb.hidden=true;
   loadChapters(w); mountGiscus(w);
 }
@@ -325,18 +320,92 @@ function protect(html, terms){
   const re=new RegExp('(?<![\\p{L}\\p{N}])(?:(?:'+(alts.join('|')||'(?!)')+')(?:-(?:san|kun|chan|sama|nim|ssi|ah|ya))?|\\p{L}+-(?:san|kun|chan|sama|nim|ssi))(?![\\p{L}\\p{N}])','gu');
   return html.replace(/(<[^>]+>)|([^<]+)/g,(m,tag,text)=>tag?tag:text.replace(re,'<span translate="no" class="term">$&</span>'));
 }
-function bodyHTML(w, text){
-  const terms=glossary(w), lc=langCode(w), la=lc?` lang="${lc}"`:'', blocks=mdBlocks(text);
-  if (store.get('read-mode','orig')!=='bi') return protect(blocks.join(''),terms);
-  return blocks.map(b=> b==='<hr>' ? b : `<div class="bi"><div class="bi-orig" translate="no"${la}>${b}</div><div class="bi-tr"${la}>${protect(b,terms)}</div></div>`).join('');
+const bodyHTML = (w, text) => protect(md(text), glossary(w));
+// ---------- in-page translation (machine translation on the reader's device) ----------
+const TL_NAMES = {es:'Español', en:'English'};
+const SCENE = /^(\*\s*){3,}$|^-{3,}$|^~{3,}$/;
+const trMem = new Map();
+const hashStr = s => { let h=5381; for (let i=0;i<s.length;i++) h=((h*33)^s.charCodeAt(i))>>>0; return h.toString(36)+'.'+s.length; };
+function trCache(id,tl){ const k=id+'|'+tl; if (!trMem.has(k)) trMem.set(k, store.get('tr:'+k,{})); return trMem.get(k); }
+function trSave(id,tl){ try{ localStorage.setItem('fs-tr:'+id+'|'+tl, JSON.stringify(trMem.get(id+'|'+tl))); }catch{ /* storage full: keep it for this visit only */ } }
+function termRegex(terms, prep){
+  const alts=terms.map(t=>prep(t).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'));
+  return new RegExp('(?<![\\p{L}\\p{N}])(?:(?:'+(alts.join('|')||'(?!)')+')(?:-(?:san|kun|chan|sama|nim|ssi|ah|ya))?|\\p{L}+-(?:san|kun|chan|sama|nim|ssi))(?![\\p{L}\\p{N}])','gu');
 }
+const stripMarks = t => t.replace(/\*\*(.+?)\*\*/g,'$1').replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g,'$1$2');
+function shield(text, terms){ const keep=[]; const out=text.replace(termRegex(terms,t=>t), m=>{ keep.push(m); return `ZQX${keep.length-1}XQZ`; }); return {out, keep}; }
+const unshield = (text, keep) => text.replace(/ZQX\s*(\d+)\s*XQZ/gi, (m,n)=>keep[+n] ?? '');
+async function gtx(text, tl){
+  const r=await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&dt=t&tl='+tl+'&q='+encodeURIComponent(text));
+  if (!r.ok) throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  return (j[0]||[]).map(s=>s&&s[0]||'').join('');
+}
+async function gtxLong(t, tl){
+  if (encodeURIComponent(t).length<=5500) return (await gtx(t,tl)).trim();
+  const sents=t.match(/[^.!?…]+[.!?…]*["”’»]?\s*/g)||[t]; let res='', chunk='';
+  for (const s of sents){ if (chunk && encodeURIComponent(chunk+s).length>5000){ res+=await gtx(chunk,tl); chunk=''; } chunk+=s; }
+  if (chunk) res+=await gtx(chunk,tl);
+  return res.trim();
+}
+async function translateTexts(texts, tl, onProgress){
+  const out=new Array(texts.length), batches=[]; let cur=[], len=0;
+  texts.forEach((t,i)=>{ const L=encodeURIComponent(t).length+6; if (cur.length && len+L>4500){ batches.push(cur); cur=[]; len=0; } cur.push(i); len+=L; });
+  if (cur.length) batches.push(cur);
+  let next=0, done=0;
+  const run=async b=>{
+    let parts=null;
+    if (b.length>1){ const joined=await gtx(b.map(i=>texts[i]).join('\n\n'),tl); parts=joined.split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean); if (parts.length!==b.length) parts=null; }
+    if (!parts){ parts=[]; for (const i of b) parts.push(await gtxLong(texts[i],tl)); }
+    b.forEach((i,k)=>out[i]=parts[k]); done+=b.length; if (onProgress) onProgress(done/texts.length);
+  };
+  await Promise.all([0,1].map(async()=>{ while (next<batches.length) await run(batches[next++]); }));
+  return out;
+}
+async function applyTranslation(w, idxs, data){
+  const tl=store.get('read-lang',''), both=store.get('read-both',false), st=$('#tr-status');
+  const both_el=$('#rd-both'); if (both_el) both_el.disabled=!tl;
+  if (!tl) { if (st) st.textContent=''; return; }
+  if (tl===langCode(w)) { if (st) st.textContent=`This fic is already in ${TL_NAMES[tl]}.`; return; }
+  const terms=glossary(w), jobs=[];
+  const add=(key,text)=>{ const el=document.querySelector(`[data-tr="${key}"]`); if (el && text && text.trim()) jobs.push({el, paras:text.replace(/\r/g,'').split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean)}); };
+  add('summary',w.summary); add('notes',w.notes); add('endnotes',w.endNotes);
+  idxs.forEach(i=>{ const d=data[i]; if (!d) return; add(`ch${i}-notes`,d.notes); add(`ch${i}-body`,d.body); add(`ch${i}-end`,d.endNotes); });
+  const cache=trCache(w.id,tl), need=[], seen=new Set();
+  jobs.forEach(j=>j.paras.forEach(p=>{ const k=hashStr(p); if (!SCENE.test(p) && !(k in cache) && !seen.has(k)){ seen.add(k); need.push(p); } }));
+  const token={}; S.trRun=token;
+  if (need.length){
+    if (st) st.textContent='Translating… 0%';
+    try{
+      const sh=need.map(p=>shield(stripMarks(p),terms));
+      const res=await translateTexts(sh.map(s=>s.out), tl, f=>{ if (S.trRun===token && st) st.textContent=`Translating… ${Math.round(f*100)}%`; });
+      res.forEach((t,i)=>{ cache[hashStr(need[i])]=unshield(t,sh[i].keep); });
+      trSave(w.id,tl);
+    }catch{
+      if (S.trRun!==token || !$('#tr-status')) return;
+      $('#tr-status').innerHTML='Couldn’t translate right now: the free translation service didn’t answer. <button class="lk" id="tr-retry">Try again</button> or use your browser’s Translate option.';
+      $('#tr-retry').onclick=()=>applyTranslation(w,idxs,data); return;
+    }
+  }
+  if (S.trRun!==token || S.view.id!==w.id || !$('#tr-status')) return;
+  const lc=langCode(w), la=lc?` lang="${lc}"`:'';
+  for (const j of jobs){
+    j.el.innerHTML=j.paras.map(p=>{
+      if (SCENE.test(p)) return '<hr>';
+      const tr=md(cache[hashStr(p)]||p);
+      return both ? `<div class="bi"><div class="bi-tr" lang="${tl}">${tr}</div><div class="bi-orig"${la}>${protect(md(p),terms)}</div></div>` : `<div lang="${tl}">${tr}</div>`;
+    }).join('');
+  }
+  $('#tr-status').textContent=`Machine-translated to ${TL_NAMES[tl]} on this device. Names, nicknames and honorifics are kept as written${both?'; the original is under each paragraph':''}.`;
+}
+
 function chapterHTML(w,i,d){
   const c=w.chapters[i], multi=w.chapters.length>1, t=c.title;
   return `<section class="chapter" id="ch-${i}">
     ${multi||t?`<h3 class="chap-title">${multi?`Chapter ${i+1}`:''}${multi&&t?': ':''}${esc(t||'')}</h3>`:''}
-    ${d&&d.notes?`<div class="cnotes"><h4>Notes:</h4>${md(d.notes)}</div>`:''}
-    <div class="userstuff"${langCode(w)?` lang="${langCode(w)}"`:''}>${d?bodyHTML(w,d.body):'<p class="muted">Loading chapter…</p>'}</div>
-    ${d&&d.endNotes?`<div class="cnotes"><h4>Chapter End Notes:</h4>${md(d.endNotes)}</div>`:''}
+    ${d&&d.notes?`<div class="cnotes"><h4>Notes:</h4><div data-tr="ch${i}-notes">${md(d.notes)}</div></div>`:''}
+    <div class="userstuff" data-tr="ch${i}-body"${langCode(w)?` lang="${langCode(w)}"`:''}>${d?bodyHTML(w,d.body):'<p class="muted">Loading chapter…</p>'}</div>
+    ${d&&d.endNotes?`<div class="cnotes"><h4>Chapter End Notes:</h4><div data-tr="ch${i}-end">${md(d.endNotes)}</div></div>`:''}
   </section>`;
 }
 async function loadChapters(w){
@@ -347,7 +416,10 @@ async function loadChapters(w){
   if (!$('#chapters') || S.view.id!==w.id) return;
   const data=S.chCache.get(w.id), idxs = S.view.whole ? w.chapters.map((_,i)=>i) : [S.view.ch];
   $('#chapters').innerHTML = idxs.map(i=>chapterHTML(w,i,data[i])).join('');
-  $('#endnotes').innerHTML = idxs.includes(w.chapters.length-1) && w.endNotes ? `<div class="notesbox"><h3>End Notes:</h3><blockquote>${md(w.endNotes)}</blockquote></div>` : '';
+  $('#endnotes').innerHTML = idxs.includes(w.chapters.length-1) && w.endNotes ? `<div class="notesbox"><h3>End Notes:</h3><blockquote data-tr="endnotes">${md(w.endNotes)}</blockquote></div>` : '';
+  const sm=document.querySelector('[data-tr="summary"]'); if (sm) sm.innerHTML=md(w.summary);
+  const nt=document.querySelector('[data-tr="notes"]'); if (nt) nt.innerHTML=md(w.notes);
+  applyTranslation(w, idxs, data);
 }
 function mountGiscus(w){
   const g=S.config.giscus; const box=document.querySelector('.giscus'); if (!g||!g.repoId||!box) return;
