@@ -333,3 +333,4 @@ export async function parseFile(name, buffer) {
   if (/\.(x?html?)$/.test(n)) return parseAO3Doc(htmlDoc(buffer.toString('utf8')));
   throw new Error('unsupported file type (use HTML or EPUB)');
 }
+
