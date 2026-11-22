@@ -55,7 +55,7 @@ for (const file of await walk(FICS)) {
     const chapters = r.chapters.map(c => ({ title: c.title, words: words(c.body) }));
     const complete = !!r.expected && r.chapters.length >= r.expected;
     index.push({
-      id, title: r.title || path.basename(file).replace(/\.[^.]+$/, ''), creator: r.creator || 'Unknown author', uploader: git.uploader,
+      id, title: r.title || path.basename(file).replace(/\.[^.]+$/, ''), creator: r.creator || 'Unknown author',
       sourceUrl: r.sourceUrl, published: r.published, rating: r.rating || 'N', warnings: r.warnings.length ? r.warnings : ['choose'],
       category: r.category, fandoms: r.fandoms, relationships: r.relationships, characters: r.characters, tags: r.tags,
       summary: r.summary, notes: r.notes, endNotes: r.endNotes, lang: r.lang || 'English', series: r.series,
@@ -74,6 +74,4 @@ console.log(`Built ${report.ok} work(s).`);
 for (const [f, why] of report.skipped) console.log(`Skipped ${f}: ${why}`);
 if (process.env.GITHUB_STEP_SUMMARY) {
   const lines = [`### Fic Shelter build`, `Published **${report.ok}** work(s).`];
-  if (report.skipped.length) lines.push('', '| Skipped file | Reason |', '|---|---|', ...report.skipped.map(([f, w]) => `| ${f} | ${w} |`));
-  await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
-}
+  if (report.skipped.length)
